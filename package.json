@@ -1,0 +1,40 @@
+{
+  "name": "agent-spend-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local, read-only dashboard that estimates what your Cursor agent chats cost — by project, model, month, day, and chat. Nothing leaves your machine.",
+  "keywords": [
+    "cursor",
+    "agent",
+    "tokens",
+    "cost",
+    "spend",
+    "dashboard",
+    "local-first"
+  ],
+  "license": "MIT",
+  "author": "Timothy Gonzalez",
+  "homepage": "https://github.com/timg456789/agent-spend#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/timg456789/agent-spend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/timg456789/agent-spend/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1"
+  },
+  "dependencies": {
+    "agent-spend-cursor-data-access": "^0.1.8",
+    "next": "^16.4.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}
