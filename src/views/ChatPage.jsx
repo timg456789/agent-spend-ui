@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { fmtInt, fmtUsd } from '@/lib/format'
 import { hrefProject } from '@/lib/routes'
@@ -90,14 +90,14 @@ export default function ChatPage({ slug, chatId }) {
           )}
           <div className="panel">
             <h3>User prompts</h3>
-            <p className="usage-meta">What you sent in this agent tab (from the transcript). Assistant and tool steps are not shown.</p>
+            <p className="usage-meta">
+              What you sent in this agent tab. Output stays collapsed. Expand a prompt to see the reply, thinking, and tool payloads behind
+              its output tokens — the same stored text the estimate counts when Cursor did not save a token count.
+            </p>
             {prompts.prompts?.length ? (
               <ol className="prompt-list">
                 {prompts.prompts.map((p) => (
-                  <li key={p.n}>
-                    <div className="prompt-n">Prompt {p.n}</div>
-                    <p className="prompt-text">{p.text}</p>
-                  </li>
+                  <PromptItem key={p.n} prompt={p} slug={slug} chatId={chatId} />
                 ))}
               </ol>
             ) : (
@@ -105,6 +105,178 @@ export default function ChatPage({ slug, chatId }) {
             )}
           </div>
         </>
+      )}
+    </>
+  )
+}
+
+function PromptItem({ prompt, slug, chatId }) {
+  const hasOutput = prompt.outputTokens != null
+  const [sort, setSort] = useState({ key: 'step', dir: 'asc' })
+  const ordered = (prompt.steps || [])
+    .map((step, index) => ({ step, n: index + 1 }))
+    .sort((a, b) => {
+      const primary = sort.key === 'output' ? a.step.outputTokens - b.step.outputTokens : a.n - b.n
+      const signed = sort.dir === 'asc' ? primary : -primary
+      return signed || a.n - b.n
+    })
+
+  function sortBy(key) {
+    setSort((current) => {
+      if (current.key === key) return { key, dir: current.dir === 'asc' ? 'desc' : 'asc' }
+      return { key, dir: key === 'output' ? 'desc' : 'asc' }
+    })
+  }
+
+  return (
+    <li>
+      <div className="prompt-head">
+        <div className="prompt-n">
+          Prompt {prompt.n}
+          {prompt.model ? <code className="prompt-model">{prompt.model}</code> : null}
+        </div>
+        {hasOutput && (
+          <div className="prompt-head-tokens">
+            {fmtInt(prompt.inputTokens)} prompt tokens · {fmtInt(prompt.outputTokens)} output tokens
+          </div>
+        )}
+      </div>
+      <p className="prompt-text">{prompt.text}</p>
+      {hasOutput && prompt.stepCount > 0 ? (
+        <details className="prompt-output">
+          <summary>
+            {fmtInt(prompt.outputTokens)} output tokens · {fmtInt(prompt.stepCount)} steps
+          </summary>
+          <div className="prompt-steps">
+            <table className="prompt-step-table">
+              <thead>
+                <tr>
+                  <th className="col-expand" aria-label="Expand"></th>
+                  <th className="col-step" aria-sort={sort.key === 'step' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className={'prompt-step-sort' + (sort.key === 'step' ? ' is-sorted' : '')} onClick={() => sortBy('step')}>
+                      Step{sort.key === 'step' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+                    </button>
+                  </th>
+                  <th className="col-desc">Description</th>
+                  <th className="col-tokens" aria-sort={sort.key === 'output' ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className={'prompt-step-sort num' + (sort.key === 'output' ? ' is-sorted' : '')} onClick={() => sortBy('output')}>
+                      Output tokens{sort.key === 'output' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {ordered.map(({ step, n: stepNumber }) => (
+                  <PromptStep key={step.id} step={step} index={stepNumber} slug={slug} chatId={chatId} n={prompt.n} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : (
+        hasOutput && <p className="usage-meta prompt-output-empty">No output stored before the next prompt.</p>
+      )}
+    </li>
+  )
+}
+
+function ExpandIcon({ open }) {
+  return (
+    <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true">
+      <path
+        d={open ? 'M3.25 6.25 8 11l4.75-4.75' : 'M6.25 3.25 11 8l-4.75 4.75'}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function PromptStep({ step, index, slug, chatId, n }) {
+  const [open, setOpen] = useState(false)
+  const [pieces, setPieces] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const started = useRef(false)
+
+  function toggle() {
+    const next = !open
+    setOpen(next)
+    if (!next || started.current) return
+    started.current = true
+    setLoading(true)
+    setError(null)
+    api
+      .chatPromptStep(chatId, slug, n, step.id)
+      .then((data) => {
+        if (data.error) {
+          started.current = false
+          setError(data.error)
+        } else setPieces(data.step?.pieces || [])
+      })
+      .catch((err) => {
+        started.current = false
+        setError(String(err?.message || err))
+      })
+      .finally(() => setLoading(false))
+  }
+
+  const description = step.kind === 'tool' ? <code>{step.label}</code> : step.label
+
+  return (
+    <>
+      <tr className={'prompt-step-main' + (open ? ' is-open' : '')} onClick={toggle}>
+        <td className="col-expand">
+          <button
+            type="button"
+            className="prompt-step-toggle"
+            aria-expanded={open}
+            aria-label={(open ? 'Collapse' : 'Expand') + ' step ' + index}
+            onClick={(event) => {
+              event.stopPropagation()
+              toggle()
+            }}
+          >
+            <ExpandIcon open={open} />
+          </button>
+        </td>
+        <td className="col-step">{index}</td>
+        <td className="col-desc">{description}</td>
+        <td className="col-tokens">
+          {fmtInt(step.outputTokens)}
+          {step.source === 'cursor' ? <span className="prompt-step-cursor"> Cursor count</span> : null}
+        </td>
+      </tr>
+      {open && (
+        <tr className="prompt-step-detail">
+          <td colSpan={4}>
+            {loading && <p className="usage-meta">Loading stored output…</p>}
+            {error && <p className="usage-meta">Could not load this step ({error}).</p>}
+            {pieces && pieces.length === 0 && <p className="usage-meta">No text stored on this step.</p>}
+            {pieces?.map((piece, pieceIndex) => (
+              <div className="prompt-piece" key={piece.label + pieceIndex}>
+                <div className="prompt-piece-label">
+                  {piece.label} · {fmtInt(piece.chars)} characters
+                </div>
+                {piece.countedTwice && (
+                  <p className="prompt-piece-note">
+                    Cursor stored these arguments twice. Both copies are included in this step&apos;s token count.
+                  </p>
+                )}
+                {step.source === 'cursor' && pieceIndex === 0 && (
+                  <p className="prompt-piece-note">Token count is Cursor&apos;s stored tokenCount, not the length of this text.</p>
+                )}
+                {piece.truncated && (
+                  <p className="prompt-piece-note">Showing the first 100,000 characters. The token count uses the full stored text.</p>
+                )}
+                <pre>{piece.text}</pre>
+              </div>
+            ))}
+          </td>
+        </tr>
       )}
     </>
   )

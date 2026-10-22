@@ -15,6 +15,10 @@ export const api = {
   },
   chatPrompts: (chatId, slug) =>
     getJson('/api/agent-chat/' + encodeURIComponent(chatId) + '/prompts?project=' + encodeURIComponent(slug)),
+  chatPromptStep: (chatId, slug, n, stepId) => {
+    const q = new URLSearchParams({ project: slug, n: String(n), step: stepId })
+    return getJson('/api/agent-chat/' + encodeURIComponent(chatId) + '/output?' + q)
+  },
   usageStreamUrl: (slug) => '/api/project/' + encodeURIComponent(slug) + '/usage?stream=1',
 }
 

@@ -19,6 +19,7 @@ import {
   composerDisplayNameFromDb,
 } from 'agent-spend-cursor-data-access'
 import { loadPricingTable, resolvePricingFile } from './pricing.mjs'
+import { summarizePromptTurns, promptTurnStep } from './promptOutput.mjs'
 
 export class ApiError extends Error {
   constructor(status, message, extra = {}) {
@@ -218,7 +219,7 @@ export function getAgentChatTokens(composerId, projectSlug = null) {
   }
 }
 
-export async function getAgentChatPrompts(composerId, projectSlug = null) {
+async function findAgentChatRow(composerId, projectSlug = null) {
   if (projectSlug) assertProjectAllowed(projectSlug)
   const { projectsDir, workspaceStorage } = cursorPaths()
   const agentChats = await scanTranscriptFiles(projectsDir, {
@@ -229,18 +230,49 @@ export async function getAgentChatPrompts(composerId, projectSlug = null) {
   const row = agentChats.find((s) => s.id === composerId)
   if (!row) throw new ApiError(404, 'not found')
   assertProjectAllowed(row.projectSlug)
+  return row
+}
+
+export async function getAgentChatPrompts(composerId, projectSlug = null) {
+  const row = await findAgentChatRow(composerId, projectSlug)
   const t0 = performance.now()
-  const prompts = await listUserPromptsFromTranscript(row.path)
   let name = null
+  let turns = null
   const { db, close } = openGlobalStateDb()
   if (db) {
     try {
       name = composerDisplayNameFromDb(db, composerId) ?? null
+      turns = summarizePromptTurns(db, composerId)
     } finally {
       close()
     }
   }
-  return { composerId, projectSlug: row.projectSlug, name, promptCount: prompts.length, prompts, scannedMs: Math.round(performance.now() - t0) }
+  const prompts = turns?.prompts?.length ? turns.prompts : await listUserPromptsFromTranscript(row.path)
+  return {
+    composerId,
+    projectSlug: row.projectSlug,
+    name,
+    promptCount: prompts.length,
+    outputTokens: turns?.outputTokens ?? null,
+    prompts,
+    scannedMs: Math.round(performance.now() - t0),
+  }
+}
+
+/** Stored reply / tool payload for one output step under prompt `n` (1-based). */
+export async function getAgentChatPromptStep(composerId, projectSlug, n, stepId) {
+  await findAgentChatRow(composerId, projectSlug)
+  if (!Number.isInteger(n) || n < 1) throw new ApiError(400, 'prompt number is required')
+  if (!stepId) throw new ApiError(400, 'step is required')
+  const { db, close } = openGlobalStateDb()
+  if (!db) throw new ApiError(500, 'global state.vscdb not readable')
+  try {
+    const out = promptTurnStep(db, composerId, n, stepId)
+    if (!out) throw new ApiError(404, 'output step not found')
+    return { composerId, ...out }
+  } finally {
+    close()
+  }
 }
 
 export function inspectAgentChatRun(composerId, runId = null) {

@@ -51,7 +51,8 @@ export default function DocsPage() {
           For every step we assign <strong>input tokens</strong> (user-side content) and <strong>output tokens</strong> (assistant-side
           content). When Cursor stored <code>tokenCount.inputTokens</code> / <code>outputTokens</code>, those values are used as-is. When they
           are missing or zero — common on agent/tool turns — we approximate <strong>~4 characters per token</strong> from the stored message
-          text, thinking, code blocks, and tool args/results.
+          text, thinking, code blocks, and tool args/results. On an agent chat, that stored output sits under each prompt and stays collapsed
+          until you expand it.
         </p>
         <p>
           <strong>Estimated spend</strong> = (input tokens × input $/1M) + (output tokens × output $/1M), rolled up by model. A single "total
